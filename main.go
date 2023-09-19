@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"os"
@@ -22,6 +23,10 @@ type weight struct {
 	Time        string
 	Weight      float64
 	Datetime    time.Time
+}
+
+func (w weight) WeightParsed() string {
+	return fmt.Sprintf("%.1f", w.Weight)
 }
 
 var dsc *datastore.Client
