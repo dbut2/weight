@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -71,6 +72,7 @@ func setupRoutes() *gin.Engine {
 
 	e.POST("/receive", receivePostHandler)
 	e.GET("/receive", receiveGetHandler)
+	e.GET("/batch", batchHandler)
 	e.GET("/", rootHandler)
 
 	return e
@@ -174,6 +176,44 @@ func syncSub(c *gin.Context, sub fitbit.Subscription) {
 			return
 		}
 	}
+}
+
+func batchHandler(c *gin.Context) {
+	start, end := c.Query("start"), c.Query("end")
+
+	slog.Info("batch loading", slog.String("startDate", start), slog.String("endDate", end))
+
+	bw, err := fc.BodyWeightLogByDateRange(start, end)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	slog.Info("fetched weights", slog.Int("count", len(bw.Weight)), slog.Any("blob", bw))
+
+	for _, w := range bw.Weight {
+		dt, err := time.Parse("2006-01-02 15:04:05", w.Date+" "+w.Time)
+		if err != nil {
+			handleError(c, err)
+			return
+		}
+
+		ww := weight{
+			Date:        w.Date,
+			FitbitLogID: w.LogID,
+			Time:        w.Time,
+			Weight:      w.Weight,
+			Datetime:    dt,
+		}
+
+		_, err = dsc.Put(c, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
+		if err != nil {
+			handleError(c, err)
+			return
+		}
+	}
+
+	c.String(http.StatusOK, fmt.Sprintf("%d weights loaded", len(bw.Weight)))
 }
 
 func receiveGetHandler(c *gin.Context) {
