@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"html/template"
 	"net/http"
 	"os"
 
@@ -53,8 +54,13 @@ func setupConfiguration() {
 	fc.SetToken(token)
 }
 
+//go:embed weight.html
+var weightTemplate string
+
 func setupRoutes() *gin.Engine {
 	e := gin.Default()
+
+	e.SetHTMLTemplate(template.Must(template.New("weight").Parse(weightTemplate)))
 
 	e.POST("/receive", receivePostHandler)
 	e.GET("/receive", receiveGetHandler)
@@ -180,5 +186,7 @@ func rootHandler(c *gin.Context) {
 		return
 	}
 
-	c.String(http.StatusOK, fmt.Sprintf("%f", weights[0].Weight))
+	c.HTML(http.StatusOK, "weight", gin.H{
+		"Weight": weights[0],
+	})
 }
