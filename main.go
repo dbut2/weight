@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"time"
 
 	"cloud.google.com/go/datastore"
 	"github.com/Thomas2500/go-fitbit"
@@ -20,6 +21,7 @@ type weight struct {
 	FitbitLogID int64
 	Time        string
 	Weight      float64
+	Datetime    time.Time
 }
 
 var dsc *datastore.Client
@@ -144,11 +146,18 @@ func receivePostHandler(c *gin.Context) {
 			continue
 		}
 
+		dt, err := time.Parse("2006-01-02 15:04:05", w.Date+" "+w.Time)
+		if err != nil {
+			handleError(c, err)
+			return
+		}
+
 		ww := weight{
 			Date:        w.Date,
 			FitbitLogID: w.LogID,
 			Time:        w.Time,
 			Weight:      w.Weight,
+			Datetime:    dt,
 		}
 
 		_, err = dsc.Put(c, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
@@ -173,7 +182,7 @@ func receiveGetHandler(c *gin.Context) {
 
 func rootHandler(c *gin.Context) {
 	var weights []weight
-	_, err := dsc.GetAll(c, datastore.NewQuery("Weight").Order("-Time"), &weights)
+	_, err := dsc.GetAll(c, datastore.NewQuery("Weight").Order("-Datetime"), &weights)
 	if err != nil {
 		_ = c.Error(err)
 		c.Status(http.StatusInternalServerError)
