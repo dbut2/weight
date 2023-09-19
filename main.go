@@ -42,13 +42,13 @@ func setupConfiguration() {
 	var err error
 	dsc, err = datastore.NewClient(context.Background(), os.Getenv("PROJECT_ID"))
 	if err != nil {
-		panic(err)
+		panic(err.Error())
 	}
 
 	token := &oauth2.Token{}
 	err = json.Unmarshal([]byte(os.Getenv("FITBIT_TOKEN")), token)
 	if err != nil {
-		panic(err)
+		panic(err.Error())
 	}
 
 	fc = fitbit.New(fitbit.Config{
@@ -100,18 +100,21 @@ func receivePostHandler(c *gin.Context) {
 		return
 	}
 
-	if len(subs) == 0 {
-		handleError(c, errors.New("no subscriptions"))
-		return
+	for _, sub := range subs {
+		fmt.Printf("syncing sub: %s\n", sub.SubscriptionID)
+		fmt.Printf("%+v\n", sub)
+		syncSub(c, sub)
 	}
+}
 
-	sub := subs[0]
-
+func syncSub(c *gin.Context, sub fitbit.Subscription) {
 	bw, err := fc.BodyWeightLogByDay(sub.Date)
 	if err != nil {
 		handleError(c, err)
 		return
 	}
+	fmt.Printf("fetched %d weights\n", len(bw.Weight))
+	fmt.Printf("%+v\n", bw.Weight)
 
 	var existingWeights []weight
 	keys, err := dsc.GetAll(c, datastore.NewQuery("Weight").FilterField("Date", "=", sub.Date), &existingWeights)
