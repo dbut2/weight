@@ -10,9 +10,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/datastore"
+	secretmanager "cloud.google.com/go/secretmanager/apiv1"
+	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/Thomas2500/go-fitbit"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
@@ -30,8 +33,9 @@ func (w weight) WeightParsed() string {
 	return fmt.Sprintf("%.1f", w.Weight)
 }
 
-var dsc *datastore.Client
-var fc *fitbit.Session
+var dsc func() *datastore.Client
+var smc func() *secretmanager.Client
+var fbc func() *fitbit.Session
 
 func main() {
 	setupConfiguration()
@@ -40,26 +44,74 @@ func main() {
 }
 
 func setupConfiguration() {
-	var err error
-	dsc, err = datastore.NewClient(context.Background(), os.Getenv("PROJECT_ID"))
-	if err != nil {
-		panic(err.Error())
-	}
-
-	token := &oauth2.Token{}
-	err = json.Unmarshal([]byte(os.Getenv("FITBIT_TOKEN")), token)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	fc = fitbit.New(fitbit.Config{
-		ClientID:     os.Getenv("FITBIT_CLIENT"),
-		ClientSecret: os.Getenv("FITBIT_SECRET"),
-		RedirectURL:  os.Getenv("FITBIT_REDIRECT"),
-		Scopes:       []fitbit.Scope{fitbit.ScopeWeight},
-		Locale:       "en-au",
+	dsc = sync.OnceValue(func() *datastore.Client {
+		client, err := datastore.NewClient(context.Background(), os.Getenv("PROJECT_ID"))
+		if err != nil {
+			panic(err.Error())
+		}
+		return client
 	})
-	fc.SetToken(token)
+
+	smc = sync.OnceValue(func() *secretmanager.Client {
+		client, err := secretmanager.NewClient(context.Background())
+		if err != nil {
+			panic(err.Error())
+		}
+		return client
+	})
+
+	fbc = sync.OnceValue(func() *fitbit.Session {
+		client := fitbit.New(fitbit.Config{
+			ClientID:     os.Getenv("FITBIT_CLIENT"),
+			ClientSecret: os.Getenv("FITBIT_SECRET"),
+			RedirectURL:  os.Getenv("FITBIT_REDIRECT"),
+			Scopes:       []fitbit.Scope{fitbit.ScopeWeight},
+			Locale:       "en-au",
+		})
+		client.SetToken(getToken())
+		client.TokenChange = setToken
+
+		return client
+	})
+}
+
+func getToken() *oauth2.Token {
+	secret := os.Getenv("FITBIT_TOKEN_SECRET")
+
+	resp, err := smc().AccessSecretVersion(context.Background(), &secretmanagerpb.AccessSecretVersionRequest{
+		Name: secret + "/versions/latest",
+	})
+	if err != nil {
+		panic(err.Error())
+	}
+
+	bytes := resp.GetPayload().Data
+	token := &oauth2.Token{}
+	err = json.Unmarshal(bytes, token)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	return token
+}
+
+func setToken(token *oauth2.Token) {
+	secret := os.Getenv("FITBIT_TOKEN_SECRET")
+
+	bytes, err := json.Marshal(token)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	_, err = smc().AddSecretVersion(context.Background(), &secretmanagerpb.AddSecretVersionRequest{
+		Parent: secret,
+		Payload: &secretmanagerpb.SecretPayload{
+			Data: bytes,
+		},
+	})
+	if err != nil {
+		panic(err.Error())
+	}
 }
 
 //go:embed weight.html
@@ -110,7 +162,7 @@ func receivePostHandler(c *gin.Context) {
 }
 
 func syncSub(c *gin.Context, sub fitbit.Subscription) {
-	bw, err := fc.BodyWeightLogByDay(sub.Date)
+	bw, err := fbc().BodyWeightLogByDay(sub.Date)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -119,7 +171,7 @@ func syncSub(c *gin.Context, sub fitbit.Subscription) {
 	fmt.Printf("%+v\n", bw.Weight)
 
 	var existingWeights []weight
-	keys, err := dsc.GetAll(c, datastore.NewQuery("Weight").FilterField("Date", "=", sub.Date), &existingWeights)
+	keys, err := dsc().GetAll(c, datastore.NewQuery("Weight").FilterField("Date", "=", sub.Date), &existingWeights)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -137,7 +189,7 @@ func syncSub(c *gin.Context, sub fitbit.Subscription) {
 			continue
 		}
 
-		err = dsc.Delete(c, keys[i])
+		err = dsc().Delete(c, keys[i])
 		if err != nil {
 			handleError(c, err)
 			return
@@ -170,7 +222,7 @@ func syncSub(c *gin.Context, sub fitbit.Subscription) {
 			Datetime:    dt,
 		}
 
-		_, err = dsc.Put(c, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
+		_, err = dsc().Put(c, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
 		if err != nil {
 			handleError(c, err)
 			return
@@ -183,7 +235,7 @@ func batchHandler(c *gin.Context) {
 
 	slog.Info("batch loading", slog.String("startDate", start), slog.String("endDate", end))
 
-	bw, err := fc.BodyWeightLogByDateRange(start, end)
+	bw, err := fbc().BodyWeightLogByDateRange(start, end)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -206,7 +258,7 @@ func batchHandler(c *gin.Context) {
 			Datetime:    dt,
 		}
 
-		_, err = dsc.Put(c, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
+		_, err = dsc().Put(c, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
 		if err != nil {
 			handleError(c, err)
 			return
@@ -230,7 +282,7 @@ func receiveGetHandler(c *gin.Context) {
 
 func rootHandler(c *gin.Context) {
 	var weights []weight
-	_, err := dsc.GetAll(c, datastore.NewQuery("Weight").Order("-Datetime"), &weights)
+	_, err := dsc().GetAll(c, datastore.NewQuery("Weight").Order("-Datetime"), &weights)
 	if err != nil {
 		_ = c.Error(err)
 		c.Status(http.StatusInternalServerError)

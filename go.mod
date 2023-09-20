@@ -4,6 +4,7 @@ go 1.21
 
 require (
 	cloud.google.com/go/datastore v1.14.0
+	cloud.google.com/go/secretmanager v1.11.1
 	github.com/Thomas2500/go-fitbit v1.2.3
 	github.com/gin-gonic/gin v1.9.1
 	golang.org/x/oauth2 v0.12.0
@@ -13,6 +14,7 @@ require (
 	cloud.google.com/go v0.110.7 // indirect
 	cloud.google.com/go/compute v1.23.0 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
+	cloud.google.com/go/iam v1.1.1 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
