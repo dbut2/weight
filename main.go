@@ -315,7 +315,7 @@ func batchHandler(c *gin.Context) {
 	slog.Info("fetched weights", slog.Int("count", len(bw.Weight)), slog.Any("blob", bw))
 
 	for _, w := range bw.Weight {
-		dt, err := time.Parse("2006-01-02 15:04:05", w.Date+" "+w.Time)
+		dt, err := time.ParseInLocation("2006-01-02 15:04:05", w.Date+" "+w.Time, must(time.LoadLocation("Australia/Melbourne")))
 		if err != nil {
 			handleError(c, err)
 			return
@@ -375,7 +375,7 @@ func rootHandler(c *gin.Context) {
 	}
 
 	c.HTML(http.StatusOK, "weight", gin.H{
-		"Weight":  weights[0],
+		"Weight":  weights[len(weights)-1],
 		"Weights": weights,
 	})
 }

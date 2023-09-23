@@ -18,7 +18,9 @@
 			max-width: 80%;
 		}
 	</style>
-	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/index.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body>
 <div class="container">
@@ -58,13 +60,20 @@
 		options: {
 			scales: {
 				x: {
+					type: 'time', // Set the x-axis to a time scale
+					time: {
+						unit: 'day',
+						displayFormats: {
+							day: 'MMM d'
+						}
+					},
 					ticks: {
 						display: false
 					},
 					grid: {
 						display: false
 					},
-					drawBorder: false  // Hide x-axis line
+					drawBorder: false
 				},
 				y: {
 					ticks: {
@@ -73,12 +82,12 @@
 					grid: {
 						display: false
 					},
-					drawBorder: false  // Hide y-axis line
+					drawBorder: false
 				}
 			},
 			plugins: {
 				legend: {
-					display: false  // Hide dataset legend
+					display: false
 				}
 			}
 		}
