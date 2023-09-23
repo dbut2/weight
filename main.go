@@ -357,7 +357,7 @@ func rootHandler(c *gin.Context) {
 	c.Request.WithContext(ctx)
 
 	var weights []weight
-	_, err := dsc().GetAll(c, datastore.NewQuery("Weight").Order("-Datetime"), &weights)
+	_, err := dsc().GetAll(c, datastore.NewQuery("Weight").Order("Datetime"), &weights)
 	if err != nil {
 		_ = c.Error(err)
 		c.Status(http.StatusInternalServerError)
@@ -371,6 +371,7 @@ func rootHandler(c *gin.Context) {
 	}
 
 	c.HTML(http.StatusOK, "weight", gin.H{
-		"Weight": weights[0],
+		"Weight":  weights[0],
+		"Weights": weights,
 	})
 }
