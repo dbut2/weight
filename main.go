@@ -16,9 +16,18 @@ import (
 	"cloud.google.com/go/datastore"
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace"
 	"github.com/Thomas2500/go-fitbit"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/detectors/gcp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/oauth2"
+	"google.golang.org/api/iterator"
 )
 
 type weight struct {
@@ -37,7 +46,25 @@ var dsc func() *datastore.Client
 var smc func() *secretmanager.Client
 var fbc func() *fitbit.Session
 
+var tracer trace.Tracer
+
 func main() {
+	exporter, err := texporter.New(texporter.WithProjectID(os.Getenv("PROJECT_ID")))
+	if err != nil {
+		panic(err.Error())
+	}
+
+	res, err := resource.New(context.Background(), resource.WithDetectors(gcp.NewDetector()), resource.WithTelemetrySDK(), resource.WithAttributes(semconv.ServiceNameKey.String("weight")))
+	if err != nil {
+		panic(err.Error())
+	}
+
+	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res))
+	defer tp.Shutdown(context.Background())
+	otel.SetTracerProvider(tp)
+
+	tracer = tp.Tracer("weight")
+
 	setupConfiguration()
 	e := setupRoutes()
 	startServer(e)
@@ -66,7 +93,7 @@ func setupConfiguration() {
 			ClientSecret: os.Getenv("FITBIT_SECRET"),
 			RedirectURL:  os.Getenv("FITBIT_REDIRECT"),
 			Scopes:       []fitbit.Scope{fitbit.ScopeWeight},
-			Locale:       "en-au",
+			Locale:       "en-AU",
 		})
 		client.SetToken(getToken())
 		client.TokenChange = setToken
@@ -103,7 +130,7 @@ func setToken(token *oauth2.Token) {
 		panic(err.Error())
 	}
 
-	_, err = smc().AddSecretVersion(context.Background(), &secretmanagerpb.AddSecretVersionRequest{
+	newVersion, err := smc().AddSecretVersion(context.Background(), &secretmanagerpb.AddSecretVersionRequest{
 		Parent: secret,
 		Payload: &secretmanagerpb.SecretPayload{
 			Data: bytes,
@@ -112,6 +139,33 @@ func setToken(token *oauth2.Token) {
 	if err != nil {
 		panic(err.Error())
 	}
+
+	secretVersions := smc().ListSecretVersions(context.Background(), &secretmanagerpb.ListSecretVersionsRequest{
+		Parent: secret,
+		Filter: "NOT state:DESTROYED",
+	})
+
+	for {
+		nextVersion, err := secretVersions.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			panic(err.Error())
+		}
+
+		if nextVersion.GetName() == newVersion.GetName() {
+			continue
+		}
+
+		_, err = smc().DestroySecretVersion(context.Background(), &secretmanagerpb.DestroySecretVersionRequest{
+			Name: nextVersion.GetName(),
+			Etag: nextVersion.GetEtag(),
+		})
+		if err != nil {
+			panic(err.Error())
+		}
+	}
 }
 
 //go:embed weight.html
@@ -119,6 +173,8 @@ var weightTemplate string
 
 func setupRoutes() *gin.Engine {
 	e := gin.Default()
+
+	e.Use(otelgin.Middleware("weight"))
 
 	e.SetHTMLTemplate(template.Must(template.New("weight").Parse(weightTemplate)))
 
@@ -147,6 +203,10 @@ func handleError(c *gin.Context, err error) {
 }
 
 func receivePostHandler(c *gin.Context) {
+	ctx, span := tracer.Start(c, "receivePost")
+	defer span.End()
+	c.Request.WithContext(ctx)
+
 	var subs []fitbit.Subscription
 	err := c.BindJSON(&subs)
 	if err != nil {
@@ -162,6 +222,9 @@ func receivePostHandler(c *gin.Context) {
 }
 
 func syncSub(c *gin.Context, sub fitbit.Subscription) {
+	ctx, span := tracer.Start(c, "syncSub")
+	defer span.End()
+	c.Request.WithContext(ctx)
 	bw, err := fbc().BodyWeightLogByDay(sub.Date)
 	if err != nil {
 		handleError(c, err)
@@ -231,6 +294,10 @@ func syncSub(c *gin.Context, sub fitbit.Subscription) {
 }
 
 func batchHandler(c *gin.Context) {
+	ctx, span := tracer.Start(c, "batch")
+	defer span.End()
+	c.Request.WithContext(ctx)
+
 	start, end := c.Query("start"), c.Query("end")
 
 	slog.Info("batch loading", slog.String("startDate", start), slog.String("endDate", end))
@@ -269,6 +336,10 @@ func batchHandler(c *gin.Context) {
 }
 
 func receiveGetHandler(c *gin.Context) {
+	ctx, span := tracer.Start(c, "receiveGet")
+	defer span.End()
+	c.Request.WithContext(ctx)
+
 	verification := os.Getenv("FITBIT_VERIFICATION")
 	verify := c.Query("verify")
 
@@ -281,6 +352,10 @@ func receiveGetHandler(c *gin.Context) {
 }
 
 func rootHandler(c *gin.Context) {
+	ctx, span := tracer.Start(c, "display")
+	defer span.End()
+	c.Request.WithContext(ctx)
+
 	var weights []weight
 	_, err := dsc().GetAll(c, datastore.NewQuery("Weight").Order("-Datetime"), &weights)
 	if err != nil {
