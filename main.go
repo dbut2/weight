@@ -42,6 +42,10 @@ func (w weight) WeightParsed() string {
 	return fmt.Sprintf("%.1f", w.Weight)
 }
 
+func (w weight) DisplayDate() string {
+	return w.Datetime.Format("Jan 2")
+}
+
 var dsc func() *datastore.Client
 var smc func() *secretmanager.Client
 var fbc func() *fitbit.Session
