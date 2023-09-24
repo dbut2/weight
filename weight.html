@@ -50,7 +50,7 @@
 	let chart = new Chart(ctx, {
 		type: 'line',
 		data: {
-			labels: [{{ range $index, $element := .Weights }} "{{ $element.DisplayDate }}", {{ end }}],
+			labels: [{{ range $index, $element := .Weights }} "{{ $element.JSDate }}", {{ end }}],
 			datasets: [{
 				label: 'Weight',
 				data: [{{ range $index, $element := .Weights }} {{ $element.Weight }}, {{ end }}],

@@ -46,6 +46,10 @@ func (w weight) DisplayDate() string {
 	return w.Datetime.Format("Jan 2")
 }
 
+func (w weight) JSDate() string {
+	return w.Datetime.Format("2006-01-02 15:04:05")
+}
+
 var dsc func() *datastore.Client
 var smc func() *secretmanager.Client
 var fbc func() *fitbit.Session
@@ -315,7 +319,7 @@ func batchHandler(c *gin.Context) {
 	slog.Info("fetched weights", slog.Int("count", len(bw.Weight)), slog.Any("blob", bw))
 
 	for _, w := range bw.Weight {
-		dt, err := time.ParseInLocation("2006-01-02 15:04:05", w.Date+" "+w.Time, must(time.LoadLocation("Australia/Melbourne")))
+		dt, err := time.ParseInLocation("2006-01-02 15:04:05", w.Date+" "+w.Time, time.Local)
 		if err != nil {
 			handleError(c, err)
 			return
