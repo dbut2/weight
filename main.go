@@ -42,6 +42,14 @@ func (w weight) WeightParsed() string {
 	return fmt.Sprintf("%.1f", w.Weight)
 }
 
+func (w weight) DisplayDate() string {
+	return w.Datetime.Format("Jan 2")
+}
+
+func (w weight) JSDate() string {
+	return w.Datetime.Format("2006-01-02 15:04:05")
+}
+
 var dsc func() *datastore.Client
 var smc func() *secretmanager.Client
 var fbc func() *fitbit.Session
@@ -311,7 +319,7 @@ func batchHandler(c *gin.Context) {
 	slog.Info("fetched weights", slog.Int("count", len(bw.Weight)), slog.Any("blob", bw))
 
 	for _, w := range bw.Weight {
-		dt, err := time.Parse("2006-01-02 15:04:05", w.Date+" "+w.Time)
+		dt, err := time.ParseInLocation("2006-01-02 15:04:05", w.Date+" "+w.Time, time.Local)
 		if err != nil {
 			handleError(c, err)
 			return
@@ -357,7 +365,7 @@ func rootHandler(c *gin.Context) {
 	c.Request.WithContext(ctx)
 
 	var weights []weight
-	_, err := dsc().GetAll(c, datastore.NewQuery("Weight").Order("-Datetime"), &weights)
+	_, err := dsc().GetAll(c, datastore.NewQuery("Weight").Order("Datetime"), &weights)
 	if err != nil {
 		_ = c.Error(err)
 		c.Status(http.StatusInternalServerError)
@@ -371,6 +379,14 @@ func rootHandler(c *gin.Context) {
 	}
 
 	c.HTML(http.StatusOK, "weight", gin.H{
-		"Weight": weights[0],
+		"Weight":  weights[len(weights)-1],
+		"Weights": weights,
 	})
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err.Error())
+	}
+	return v
 }
