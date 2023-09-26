@@ -39,7 +39,7 @@
 				History
 			</div>
 			<div class="card-body">
-				<canvas id="weightChart"></canvas>
+				<canvas id="weightChart" style="width: 900px; height: 450px;"></canvas>
 			</div>
 		</div>
 	</div>
@@ -54,19 +54,14 @@
 			datasets: [{
 				label: 'Weight',
 				data: [{{ range $index, $element := .Weights }} {{ $element.Weight }}, {{ end }}],
+				pointRadius: 0,
 				borderWidth: 1
 			}]
 		},
 		options: {
 			scales: {
 				x: {
-					type: 'time', // Set the x-axis to a time scale
-					time: {
-						unit: 'day',
-						displayFormats: {
-							day: 'MMM d'
-						}
-					},
+					type: 'time',
 					ticks: {
 						display: false
 					},
