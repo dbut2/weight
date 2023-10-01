@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -22,11 +21,13 @@ import (
 	"go.opentelemetry.io/contrib/detectors/gcp"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/oauth2"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
 )
 
@@ -308,21 +309,46 @@ func batchHandler(c *gin.Context) {
 
 	start, end := c.Query("start"), c.Query("end")
 
-	slog.Info("batch loading", slog.String("startDate", start), slog.String("endDate", end))
+	span.SetAttributes(attribute.String("start", start), attribute.String("end", end))
 
-	bw, err := fbc().BodyWeightLogByDateRange(start, end)
+	total := 0
+
+	eg := errgroup.Group{}
+	for _, dates := range batchDates(start, end) {
+		s, e := dates[0], dates[1]
+		eg.Go(func() error {
+			count, err := syncDates(ctx, s, e)
+			total += count
+			return err
+		})
+	}
+	err := eg.Wait()
 	if err != nil {
 		handleError(c, err)
 		return
 	}
 
-	slog.Info("fetched weights", slog.Int("count", len(bw.Weight)), slog.Any("blob", bw))
+	span.SetAttributes(attribute.Int("count", total))
+
+	c.String(http.StatusOK, fmt.Sprintf("%d weights loaded", total))
+}
+
+func syncDates(ctx context.Context, start, end string) (int, error) {
+	ctx, span := tracer.Start(ctx, "syncDates")
+	defer span.End()
+	span.SetAttributes(attribute.String("start", start), attribute.String("end", end))
+
+	bw, err := fbc().BodyWeightLogByDateRange(start, end)
+	if err != nil {
+		return 0, err
+	}
+
+	span.SetAttributes(attribute.Int("count", len(bw.Weight)))
 
 	for _, w := range bw.Weight {
 		dt, err := time.ParseInLocation("2006-01-02 15:04:05", w.Date+" "+w.Time, time.Local)
 		if err != nil {
-			handleError(c, err)
-			return
+			return 0, err
 		}
 
 		ww := weight{
@@ -333,14 +359,31 @@ func batchHandler(c *gin.Context) {
 			Datetime:    dt,
 		}
 
-		_, err = dsc().Put(c, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
+		_, err = dsc().Put(ctx, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
 		if err != nil {
-			handleError(c, err)
-			return
+			return 0, err
 		}
 	}
 
-	c.String(http.StatusOK, fmt.Sprintf("%d weights loaded", len(bw.Weight)))
+	return len(bw.Weight), nil
+}
+
+func batchDates(start, end string) [][2]string {
+	layout := "2006-01-02"
+
+	s := must(time.Parse(layout, start))
+	e := must(time.Parse(layout, end))
+
+	var ranges [][2]string
+	for s.Before(e) {
+		b := time.Date(s.Year(), s.Month()+1, 1, 0, 0, 0, 0, s.Location()).Add(-1 * time.Nanosecond)
+		if b.After(e) {
+			b = e
+		}
+		ranges = append(ranges, [2]string{s.Format(layout), b.Format(layout)})
+		s = b.Add(time.Nanosecond)
+	}
+	return ranges
 }
 
 func receiveGetHandler(c *gin.Context) {
