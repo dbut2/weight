@@ -111,6 +111,7 @@ func setupConfiguration() {
 	})
 }
 
+// getToken fetches the current token from secret manager.
 func getToken() *oauth2.Token {
 	secret := os.Getenv("FITBIT_TOKEN_SECRET")
 
@@ -131,6 +132,7 @@ func getToken() *oauth2.Token {
 	return token
 }
 
+// setToken sets the current token in secret manager, destroying all older versions.
 func setToken(token *oauth2.Token) {
 	secret := os.Getenv("FITBIT_TOKEN_SECRET")
 
