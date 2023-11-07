@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/datastore v1.15.0
 	cloud.google.com/go/secretmanager v1.11.4
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.19.1
-	github.com/Thomas2500/go-fitbit v1.2.3
+	github.com/Thomas2500/go-fitbit v1.2.4
 	github.com/gin-gonic/gin v1.9.1
 	go.opentelemetry.io/contrib/detectors/gcp v1.19.0
 	go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin v0.45.0
@@ -61,7 +61,7 @@ require (
 	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
-	google.golang.org/appengine v1.6.7 // indirect
+	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto v0.0.0-20231016165738-49dd2c1f3d0b // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20231016165738-49dd2c1f3d0b // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20231030173426-d783a09b4405 // indirect
