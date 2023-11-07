@@ -69,7 +69,9 @@ func main() {
 	}
 
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res))
-	defer tp.Shutdown(context.Background())
+	defer func() {
+		_ = tp.Shutdown(context.Background())
+	}()
 	otel.SetTracerProvider(tp)
 
 	tracer = tp.Tracer("weight")
@@ -216,7 +218,6 @@ func handleError(c *gin.Context, err error) {
 func receivePostHandler(c *gin.Context) {
 	ctx, span := tracer.Start(c, "receivePost")
 	defer span.End()
-	c.Request.WithContext(ctx)
 
 	var subs []fitbit.Subscription
 	err := c.BindJSON(&subs)
@@ -228,27 +229,28 @@ func receivePostHandler(c *gin.Context) {
 	for _, sub := range subs {
 		fmt.Printf("syncing sub: %s\n", sub.SubscriptionID)
 		fmt.Printf("%+v\n", sub)
-		syncSub(c, sub)
+		err = syncSub(ctx, sub)
+		if err != nil {
+			handleError(c, err)
+			return
+		}
 	}
 }
 
-func syncSub(c *gin.Context, sub fitbit.Subscription) {
-	ctx, span := tracer.Start(c, "syncSub")
+func syncSub(ctx context.Context, sub fitbit.Subscription) error {
+	ctx, span := tracer.Start(ctx, "syncSub")
 	defer span.End()
-	c.Request.WithContext(ctx)
 	bw, err := fbc().BodyWeightLogByDay(sub.Date)
 	if err != nil {
-		handleError(c, err)
-		return
+		return err
 	}
 	fmt.Printf("fetched %d weights\n", len(bw.Weight))
 	fmt.Printf("%+v\n", bw.Weight)
 
 	var existingWeights []weight
-	keys, err := dsc().GetAll(c, datastore.NewQuery("Weight").FilterField("Date", "=", sub.Date), &existingWeights)
+	keys, err := dsc().GetAll(ctx, datastore.NewQuery("Weight").FilterField("Date", "=", sub.Date), &existingWeights)
 	if err != nil {
-		handleError(c, err)
-		return
+		return err
 	}
 
 	for i, existingWeight := range existingWeights {
@@ -263,10 +265,9 @@ func syncSub(c *gin.Context, sub fitbit.Subscription) {
 			continue
 		}
 
-		err = dsc().Delete(c, keys[i])
+		err = dsc().Delete(ctx, keys[i])
 		if err != nil {
-			handleError(c, err)
-			return
+			return err
 		}
 	}
 
@@ -284,8 +285,7 @@ func syncSub(c *gin.Context, sub fitbit.Subscription) {
 
 		dt, err := time.Parse("2006-01-02 15:04:05", w.Date+" "+w.Time)
 		if err != nil {
-			handleError(c, err)
-			return
+			return err
 		}
 
 		ww := weight{
@@ -296,18 +296,18 @@ func syncSub(c *gin.Context, sub fitbit.Subscription) {
 			Datetime:    dt,
 		}
 
-		_, err = dsc().Put(c, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
+		_, err = dsc().Put(ctx, datastore.IDKey("Weight", ww.FitbitLogID, nil), &ww)
 		if err != nil {
-			handleError(c, err)
-			return
+			return err
 		}
 	}
+
+	return nil
 }
 
 func batchHandler(c *gin.Context) {
 	ctx, span := tracer.Start(c, "batch")
 	defer span.End()
-	c.Request.WithContext(ctx)
 
 	start, end := c.Query("start"), c.Query("end")
 
@@ -389,9 +389,8 @@ func batchDates(start, end string) [][2]string {
 }
 
 func receiveGetHandler(c *gin.Context) {
-	ctx, span := tracer.Start(c, "receiveGet")
+	_, span := tracer.Start(c, "receiveGet")
 	defer span.End()
-	c.Request.WithContext(ctx)
 
 	verification := os.Getenv("FITBIT_VERIFICATION")
 	verify := c.Query("verify")
@@ -407,10 +406,9 @@ func receiveGetHandler(c *gin.Context) {
 func rootHandler(c *gin.Context) {
 	ctx, span := tracer.Start(c, "display")
 	defer span.End()
-	c.Request.WithContext(ctx)
 
 	var weights []weight
-	_, err := dsc().GetAll(c, datastore.NewQuery("Weight").Order("Datetime"), &weights)
+	_, err := dsc().GetAll(ctx, datastore.NewQuery("Weight").Order("Datetime"), &weights)
 	if err != nil {
 		_ = c.Error(err)
 		c.Status(http.StatusInternalServerError)
