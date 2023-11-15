@@ -194,6 +194,7 @@ func setupRoutes() *gin.Engine {
 	e.POST("/receive", receivePostHandler)
 	e.GET("/receive", receiveGetHandler)
 	e.GET("/batch", batchHandler)
+	e.POST("/health", healthHandler)
 	e.GET("/", rootHandler)
 
 	return e
@@ -401,6 +402,38 @@ func receiveGetHandler(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+type SyncEnergy string
+
+const (
+	syncActiveEnergy  SyncEnergy = "active_energy"
+	syncRestingEnergy SyncEnergy = "basal_energy_burned"
+	syncDietaryEnergy SyncEnergy = "dietary_energy"
+)
+
+type HealthSync struct {
+	Data struct {
+		Metrics []struct {
+			Name  SyncEnergy `json:"name"`
+			Units string     `json:"units"`
+			Data  []struct {
+				Date string  `json:"date"`
+				Qty  float64 `json:"qty"`
+			} `json:"data"`
+		} `json:"metrics"`
+	} `json:"data"`
+}
+
+func healthHandler(c *gin.Context) {
+	var health HealthSync
+
+	err := c.BindJSON(&health)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	fmt.Println(health)
 }
 
 func rootHandler(c *gin.Context) {
