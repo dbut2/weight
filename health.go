@@ -98,21 +98,48 @@ func healthPostHandler(c *gin.Context) {
 		return
 	}
 
-	var energyKeys []*datastore.Key
-	for range energies {
-		energyKeys = append(energyKeys, datastore.IncompleteKey("energy", nil))
-	}
-
 	period := c.GetHeader("period")
 	switch period {
 	case "intraday":
+		var energyKeys []*datastore.Key
+		for range energies {
+			energyKeys = append(energyKeys, datastore.IncompleteKey("Energy", nil))
+		}
+
 		_, err = dsc().PutMulti(c, energyKeys, energies)
 		if err != nil {
 			handleError(c, err)
 			return
 		}
 	case "daily":
+		for _, energy := range energies {
+			rangeStart := time.Date(energy.Datetime.Year(), energy.Datetime.Month(), energy.Datetime.Day(), 0, 0, 0, 0, energy.Datetime.Location())
+			rangeEnd := time.Date(energy.Datetime.Year(), energy.Datetime.Month(), energy.Datetime.Day(), 23, 59, 59, 999_999_999, energy.Datetime.Location())
 
+			query := datastore.NewQuery("Energy")
+			query = query.FilterField("Type", "=", string(energy.Type))
+			query = query.FilterField("Datetime", ">=", rangeStart)
+			query = query.FilterField("Datetime", "<=", rangeEnd)
+
+			var dailyEnergies []Energy
+			keys, err := dsc().GetAll(c, query, &dailyEnergies)
+			if err != nil {
+				handleError(c, err)
+				return
+			}
+
+			err = dsc().DeleteMulti(c, keys)
+			if err != nil {
+				handleError(c, err)
+				return
+			}
+
+			_, err = dsc().Put(c, datastore.IncompleteKey("Energy", nil), &energy)
+			if err != nil {
+				handleError(c, err)
+				return
+			}
+		}
 	default:
 		handleError(c, fmt.Errorf("unknown period: %s", period))
 		return
@@ -122,13 +149,5 @@ func healthPostHandler(c *gin.Context) {
 }
 
 func healthGetHandler(c *gin.Context) {
-	period := c.GetHeader("period")
-
-	switch period {
-	case "intraday":
-
-	case "daily":
-	}
-
 	c.HTML(http.StatusOK, "health.html", gin.H{})
 }

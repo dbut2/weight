@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -185,6 +186,9 @@ func startServer(e *gin.Engine) {
 }
 
 func handleError(c *gin.Context, err error) {
+	_, file, line, _ := runtime.Caller(1)
+	fmt.Printf("Error occured at %s:%d\n", file, line)
+	fmt.Printf("err: %s\n", err.Error())
 	_ = c.Error(err)
 	c.Status(http.StatusInternalServerError)
 }
