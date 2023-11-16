@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -15,17 +16,8 @@ import (
 	"cloud.google.com/go/datastore"
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
-	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace"
 	"github.com/Thomas2500/go-fitbit"
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/contrib/detectors/gcp"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
@@ -55,27 +47,7 @@ var dsc func() *datastore.Client
 var smc func() *secretmanager.Client
 var fbc func() *fitbit.Session
 
-var tracer trace.Tracer
-
 func main() {
-	exporter, err := texporter.New(texporter.WithProjectID(os.Getenv("PROJECT_ID")))
-	if err != nil {
-		panic(err.Error())
-	}
-
-	res, err := resource.New(context.Background(), resource.WithDetectors(gcp.NewDetector()), resource.WithTelemetrySDK(), resource.WithAttributes(semconv.ServiceNameKey.String("weight")))
-	if err != nil {
-		panic(err.Error())
-	}
-
-	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res))
-	defer func() {
-		_ = tp.Shutdown(context.Background())
-	}()
-	otel.SetTracerProvider(tp)
-
-	tracer = tp.Tracer("weight")
-
 	setupConfiguration()
 	e := setupRoutes()
 	startServer(e)
@@ -181,20 +153,21 @@ func setToken(token *oauth2.Token) {
 	}
 }
 
-//go:embed weight.html
-var weightTemplate string
+//go:embed pages/*.html
+var pages embed.FS
 
 func setupRoutes() *gin.Engine {
 	e := gin.Default()
 
-	e.Use(otelgin.Middleware("weight"))
+	t := must(template.New("pages").ParseFS(pages, "pages/*.html"))
 
-	e.SetHTMLTemplate(template.Must(template.New("weight").Parse(weightTemplate)))
+	e.SetHTMLTemplate(t)
 
 	e.POST("/receive", receivePostHandler)
 	e.GET("/receive", receiveGetHandler)
 	e.GET("/batch", batchHandler)
-	e.POST("/health", healthHandler)
+	e.POST("/health", healthPostHandler)
+	e.GET("/health", healthGetHandler)
 	e.GET("/", rootHandler)
 
 	return e
@@ -217,9 +190,6 @@ func handleError(c *gin.Context, err error) {
 }
 
 func receivePostHandler(c *gin.Context) {
-	ctx, span := tracer.Start(c, "receivePost")
-	defer span.End()
-
 	var subs []fitbit.Subscription
 	err := c.BindJSON(&subs)
 	if err != nil {
@@ -230,7 +200,7 @@ func receivePostHandler(c *gin.Context) {
 	for _, sub := range subs {
 		fmt.Printf("syncing sub: %s\n", sub.SubscriptionID)
 		fmt.Printf("%+v\n", sub)
-		err = syncSub(ctx, sub)
+		err = syncSub(c, sub)
 		if err != nil {
 			handleError(c, err)
 			return
@@ -239,8 +209,6 @@ func receivePostHandler(c *gin.Context) {
 }
 
 func syncSub(ctx context.Context, sub fitbit.Subscription) error {
-	ctx, span := tracer.Start(ctx, "syncSub")
-	defer span.End()
 	bw, err := fbc().BodyWeightLogByDay(sub.Date)
 	if err != nil {
 		return err
@@ -307,12 +275,7 @@ func syncSub(ctx context.Context, sub fitbit.Subscription) error {
 }
 
 func batchHandler(c *gin.Context) {
-	ctx, span := tracer.Start(c, "batch")
-	defer span.End()
-
 	start, end := c.Query("start"), c.Query("end")
-
-	span.SetAttributes(attribute.String("start", start), attribute.String("end", end))
 
 	total := 0
 
@@ -320,7 +283,7 @@ func batchHandler(c *gin.Context) {
 	for _, dates := range batchDates(start, end) {
 		s, e := dates[0], dates[1]
 		eg.Go(func() error {
-			count, err := syncDates(ctx, s, e)
+			count, err := syncDates(c, s, e)
 			total += count
 			return err
 		})
@@ -331,22 +294,14 @@ func batchHandler(c *gin.Context) {
 		return
 	}
 
-	span.SetAttributes(attribute.Int("count", total))
-
 	c.String(http.StatusOK, fmt.Sprintf("%d weights loaded", total))
 }
 
 func syncDates(ctx context.Context, start, end string) (int, error) {
-	ctx, span := tracer.Start(ctx, "syncDates")
-	defer span.End()
-	span.SetAttributes(attribute.String("start", start), attribute.String("end", end))
-
 	bw, err := fbc().BodyWeightLogByDateRange(start, end)
 	if err != nil {
 		return 0, err
 	}
-
-	span.SetAttributes(attribute.Int("count", len(bw.Weight)))
 
 	for _, w := range bw.Weight {
 		dt, err := time.ParseInLocation("2006-01-02 15:04:05", w.Date+" "+w.Time, time.Local)
@@ -390,9 +345,6 @@ func batchDates(start, end string) [][2]string {
 }
 
 func receiveGetHandler(c *gin.Context) {
-	_, span := tracer.Start(c, "receiveGet")
-	defer span.End()
-
 	verification := os.Getenv("FITBIT_VERIFICATION")
 	verify := c.Query("verify")
 
@@ -404,44 +356,9 @@ func receiveGetHandler(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-type SyncEnergy string
-
-const (
-	syncActiveEnergy  SyncEnergy = "active_energy"
-	syncRestingEnergy SyncEnergy = "basal_energy_burned"
-	syncDietaryEnergy SyncEnergy = "dietary_energy"
-)
-
-type HealthSync struct {
-	Data struct {
-		Metrics []struct {
-			Name  SyncEnergy `json:"name"`
-			Units string     `json:"units"`
-			Data  []struct {
-				Date string  `json:"date"`
-				Qty  float64 `json:"qty"`
-			} `json:"data"`
-		} `json:"metrics"`
-	} `json:"data"`
-}
-
-func healthHandler(c *gin.Context) {
-	var health HealthSync
-
-	err := c.BindJSON(&health)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	fmt.Println(health)
-}
-
 func rootHandler(c *gin.Context) {
-	ctx, span := tracer.Start(c, "display")
-	defer span.End()
-
 	var weights []weight
-	_, err := dsc().GetAll(ctx, datastore.NewQuery("Weight").Order("Datetime"), &weights)
+	_, err := dsc().GetAll(c, datastore.NewQuery("Weight").Order("Datetime"), &weights)
 	if err != nil {
 		_ = c.Error(err)
 		c.Status(http.StatusInternalServerError)
@@ -454,7 +371,7 @@ func rootHandler(c *gin.Context) {
 		return
 	}
 
-	c.HTML(http.StatusOK, "weight", gin.H{
+	c.HTML(http.StatusOK, "weight.html", gin.H{
 		"Weight":  weights[len(weights)-1],
 		"Weights": weights,
 	})

@@ -1,0 +1,30 @@
+services:
+  weight:
+    ports:
+      - 8080:8080
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PROJECT_ID: dbut-0
+      FITBIT_CLIENT: 23R8JR
+      FITBIT_TOKEN_SECRET: projects/574604089887/secrets/fitbit-token
+      FITBIT_REDIRECT: https://dylanbutler.dev/redirect/fitbit
+      FITBIT_SECRET: /run/secrets/fitbit-client-secret
+      FITBIT_TOKEN: /run/secrets/fitbit-token
+      FITBIT_VERIFICATION: /run/secrets/fitbit-verification
+      PORT: 8080
+    secrets:
+      - fitbit-client-secret
+      - fitbit-token
+      - fitbit-verification
+    volumes:
+      - ~/.config/gcloud/application_default_credentials.json:/root/.config/gcloud/application_default_credentials.json
+
+secrets:
+  fitbit-client-secret:
+    file: secrets/fitbit-client-secret
+  fitbit-token:
+    file: secrets/fitbit-token
+  fitbit-verification:
+    file: secrets/fitbit-verification
