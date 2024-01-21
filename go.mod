@@ -11,7 +11,7 @@ require (
 	go.opentelemetry.io/contrib/detectors/gcp v1.21.0
 	go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin v0.46.1
 	go.opentelemetry.io/otel v1.22.0
-	go.opentelemetry.io/otel/sdk v1.20.0
+	go.opentelemetry.io/otel/sdk v1.22.0
 	go.opentelemetry.io/otel/trace v1.22.0
 	golang.org/x/oauth2 v0.16.0
 	golang.org/x/sync v0.6.0
