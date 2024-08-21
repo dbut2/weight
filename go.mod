@@ -3,7 +3,7 @@ module github.com/dbut2/weight
 go 1.21
 
 require (
-	cloud.google.com/go/datastore v1.17.1
+	cloud.google.com/go/datastore v1.18.0
 	cloud.google.com/go/secretmanager v1.14.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.24.1
 	github.com/Thomas2500/go-fitbit v1.2.4
